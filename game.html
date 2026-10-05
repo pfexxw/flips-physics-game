@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Flips Game</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { width: 100%; height: 100%; overflow: hidden; }
+        body { background: #1a1a1a; display: flex; justify-content: center; align-items: center; }
+        #gameContainer { position: relative; width: 100vw; height: 100vh; max-width: 800px; max-height: 600px; background: linear-gradient(to bottom, #87CEEB, #E0F6FF); border: 2px solid #333; }
+        canvas { display: block; width: 100%; height: 100%; }
+        #ui { position: absolute; top: 10px; left: 10px; color: #333; font-weight: bold; z-index: 10; }
+        #mobileControls { position: absolute; bottom: 0; left: 0; right: 0; display: flex; justify-content: space-around; padding: 10px; background: rgba(0,0,0,0.6); gap: 5px; }
+        .btn { width: 50px; height: 50px; border: 2px solid #fff; border-radius: 8px; background: #333; color: #fff; font-weight: bold; cursor: pointer; touch-action: none; }
+        .btn:active { background: #555; transform: scale(0.95); }
+        .btn-wide { width: 70px; }
+        @media (max-width: 480px) { .btn { width: 45px; height: 45px; } .btn-wide { width: 60px; } }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas"></canvas>
+        <div id="ui">
+            <div>Score: <span id="score">0</span></div>
+            <div>Combo: <span id="combo">0</span></div>
+        </div>
+        <div id="mobileControls">
+            <button class="btn" id="btnLeft">←</button>
+            <button class="btn" id="btnRight">→</button>
+            <button class="btn btn-wide" id="btnGrab">GRAB</button>
+            <button class="btn btn-wide" id="btnJump">GO</button>
+            <button class="btn" id="btnUp">↑</button>
+            <button class="btn" id="btnDown">↓</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = canvas.parentElement.clientWidth;
+        canvas.height = canvas.parentElement.clientHeight;
+
+        const keys = { left: false, right: false, up: false, down: false, jumpQueued: false, grabQueued: false };
+        const bars = [
+            { x: 120, y: 280, length: 120 },
+            { x: 280, y: 240, length: 110 },
+            { x: 420, y: 200, length: 115 },
+            { x: 550, y: 280, length: 125 }
+        ];
+
+        const player = {
+            x: 40, y: canvas.height - 100, vx: 0, vy: 0,
+            onGround: false, hanging: false, hangBar: null,
+            swingAngle: 0, swingVel: 0, rotation: 0,
+            combo: 0, score: 0
+        };
+
+        function clamp(v, min, max) { return Math.min(max, Math.max(min, v)); }
+        function setButtonControl(btn, key) {
+            btn.addEventListener('touchstart', (e) => { e.preventDefault(); keys[key] = true; });
+            btn.addEventListener('touchend', (e) => { e.preventDefault(); keys[key] = false; });
+            btn.addEventListener('mousedown', () => keys[key] = true);
+            btn.addEventListener('mouseup', () => keys[key] = false);
+        }
+
+        setButtonControl(document.getElementById('btnLeft'), 'left');
+        setButtonControl(document.getElementById('btnRight'), 'right');
+        setButtonControl(document.getElementById('btnUp'), 'up');
+        setButtonControl(document.getElementById('btnDown'), 'down');
+        document.getElementById('btnGrab').addEventListener('touchstart', (e) => { e.preventDefault(); keys.grabQueued = true; });
+        document.getElementById('btnJump').addEventListener('touchstart', (e) => { e.preventDefault(); keys.jumpQueued = true; });
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft') keys.left = true;
+            if (e.key === 'ArrowRight') keys.right = true;
+            if (e.key === ' ') { e.preventDefault(); keys.jumpQueued = true; }
+            if (e.key === 'e') keys.grabQueued = true;
+        });
+        window.addEventListener('keyup', (e) => {
+            if (e.key === 'ArrowLeft') keys.left = false;
+            if (e.key === 'ArrowRight') keys.right = false;
+        });
+
+        function getClosestBar() {
+            let best = null, bestDist = 100;
+            for (const bar of bars) {
+                const px = bar.x + bar.length / 2;
+                const dist = Math.hypot(player.x - px, player.y - bar.y);
+                if (dist < bestDist) { bestDist = dist; best = bar; }
+            }
+            return best;
+        }
+
+        function attemptGrab() {
+            if (player.hanging || player.onGround) return;
+            const bar = getClosestBar();
+            if (!bar) return;
+            player.hanging = true;
+            player.hangBar = bar;
+            player.vx = 0;
+            player.vy = 0;
+            player.swingVel = 0;
+        }
+
+        function launch() {
+            if (!player.hanging) return;
+            const bar = player.hangBar;
+            const dir = player.x > (bar.x + bar.length / 2) ? 1 : -1;
+            player.hanging = false;
+            player.hangBar = null;
+            player.vx = dir * (6 + Math.abs(player.swingVel) * 15);
+            player.vy = -8;
+            player.combo++;
+            player.score += 20 + player.combo * 5;
+        }
+
+        function update() {
+            if (player.hanging && player.hangBar) {
+                const bar = player.hangBar;
+                const px = bar.x + bar.length / 2;
+                if (keys.left) player.swingVel -= 0.06;
+                if (keys.right) player.swingVel += 0.06;
+                player.swingVel *= 0.98;
+                player.swingVel = clamp(player.swingVel, -0.3, 0.3);
+                player.swingAngle += player.swingVel;
+                player.x = px + Math.sin(player.swingAngle) * 60;
+                player.y = bar.y + Math.cos(player.swingAngle) * 60;
+                if (keys.jumpQueued) launch();
+            } else {
+                if (keys.left) player.vx -= 0.4;
+                if (keys.right) player.vx += 0.4;
+                if (!player.onGround) {
+                    player.vy += 0.3;
+                    if (keys.up) player.rotation += 0.1;
+                    if (keys.down) player.rotation -= 0.1;
+                }
+                player.vx *= 0.95;
+                player.x += player.vx;
+                player.y += player.vy;
+                if (player.y > canvas.height - 50) {
+                    player.y = canvas.height - 50;
+                    player.vy = 0;
+                    player.onGround = true;
+                    player.rotation = 0;
+                }
+            }
+            if (keys.grabQueued) attemptGrab();
+            keys.jumpQueued = false;
+            keys.grabQueued = false;
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Sky
+            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            gradient.addColorStop(0, '#7fd4ff');
+            gradient.addColorStop(1, '#dff7ff');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Bars
+            ctx.fillStyle = '#5c3b29';
+            for (const bar of bars) {
+                ctx.fillRect(bar.x, bar.y, bar.length, 10);
+            }
+
+            // Ground
+            ctx.fillStyle = '#5d8d4a';
+            ctx.fillRect(0, canvas.height - 40, canvas.width, 40);
+
+            // Stickman
+            ctx.save();
+            ctx.translate(player.x, player.y);
+            ctx.rotate(player.rotation);
+            ctx.strokeStyle = '#111';
+            ctx.lineWidth = 2;
+            
+            // Head
+            ctx.beginPath();
+            ctx.arc(0, -10, 6, 0, Math.PI * 2);
+            ctx.stroke();
+            
+            // Body
+            ctx.beginPath();
+            ctx.moveTo(0, -3);
+            ctx.lineTo(0, 10);
+            ctx.stroke();
+            
+            // Arms
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(-7, 5);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(7, 5);
+            ctx.stroke();
+            
+            // Legs
+            ctx.beginPath();
+            ctx.moveTo(0, 10);
+            ctx.lineTo(-5, 20);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(0, 10);
+            ctx.lineTo(5, 20);
+            ctx.stroke();
+            
+            ctx.restore();
+
+            // UI
+            document.getElementById('score').textContent = Math.floor(player.score);
+            document.getElementById('combo').textContent = player.combo;
+        }
+
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        gameLoop();
+    </script>
+</body>
+</html>
