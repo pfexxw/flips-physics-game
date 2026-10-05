@@ -1,351 +1,166 @@
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
-const scoreEl = document.getElementById('score');
-const comboEl = document.getElementById('combo');
-
-const world = {
-    width: 2400,
-    groundY: 520,
-    gravity: 0.38,
-};
-
-const keys = {
-    left: false,
-    right: false,
-    up: false,
-    down: false,
-    jumpQueued: false,
-    grabQueued: false,
-};
-
-const bars = [
-    { x: 260, y: 420, length: 150 },
-    { x: 520, y: 360, length: 130 },
-    { x: 760, y: 300, length: 140 },
-    { x: 1040, y: 430, length: 170 },
-    { x: 1360, y: 330, length: 150 },
-    { x: 1660, y: 270, length: 160 },
-    { x: 1960, y: 410, length: 155 },
-];
-
-const player = {
-    x: 90,
-    y: 470,
-    vx: 0,
-    vy: 0,
-    width: 16,
-    height: 54,
-    onGround: false,
-    hanging: false,
-    hangBar: null,
-    swingAngle: 0,
-    swingVel: 0,
-    rotation: 0,
-    combo: 0,
-    score: 0,
-};
-
-function clamp(value, min, max) {
-    return Math.min(max, Math.max(min, value));
-}
-
-function setCanvasSize() {
-    const rect = canvas.parentElement.getBoundingClientRect();
-    canvas.width = rect.width;
-    canvas.height = rect.height;
-}
-
-window.addEventListener('resize', setCanvasSize);
-setCanvasSize();
-
-window.addEventListener('keydown', (event) => {
-    const key = event.key.toLowerCase();
-
-    if (key === 'arrowleft' || key === 'a') keys.left = true;
-    if (key === 'arrowright' || key === 'd') keys.right = true;
-    if (key === 'w') keys.up = true;
-    if (key === 's') keys.down = true;
-
-    if (event.code === 'Space') {
-        event.preventDefault();
-        keys.jumpQueued = true;
-    }
-
-    if (key === 'e') {
-        keys.grabQueued = true;
-    }
-});
-
-window.addEventListener('keyup', (event) => {
-    const key = event.key.toLowerCase();
-
-    if (key === 'arrowleft' || key === 'a') keys.left = false;
-    if (key === 'arrowright' || key === 'd') keys.right = false;
-    if (key === 'w') keys.up = false;
-    if (key === 's') keys.down = false;
-});
-
-function resetPlayer() {
-    player.x = 90;
-    player.y = world.groundY - player.height;
-    player.vx = 0;
-    player.vy = 0;
-    player.onGround = true;
-    player.hanging = false;
-    player.hangBar = null;
-    player.rotation = 0;
-    player.swingVel = 0;
-    player.swingAngle = 0;
-}
-
-function releaseFromBar() {
-    player.hanging = false;
-    player.hangBar = null;
-    player.onGround = false;
-}
-
-function getClosestBar() {
-    let bestBar = null;
-    let bestDist = Infinity;
-
-    for (const bar of bars) {
-        const pivotX = bar.x + bar.length / 2;
-        const dx = player.x - pivotX;
-        const dy = player.y - bar.y;
-        const dist = Math.hypot(dx, dy);
-
-        if (dist < 110 && dist < bestDist) {
-            bestDist = dist;
-            bestBar = bar;
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Flips Physics Game</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
-    }
 
-    return bestBar;
-}
-
-function attemptGrab() {
-    if (player.hanging || player.onGround) return;
-
-    const bar = getClosestBar();
-    if (!bar) return;
-
-    const pivotX = bar.x + bar.length / 2;
-    const pivotY = bar.y;
-
-    player.hanging = true;
-    player.hangBar = bar;
-    player.vx = 0;
-    player.vy = 0;
-    player.swingAngle = Math.atan2(player.x - pivotX, 68);
-    player.swingVel = 0;
-    player.rotation = player.swingAngle;
-
-    const swingX = pivotX + Math.sin(player.swingAngle) * 72;
-    const swingY = pivotY + Math.cos(player.swingAngle) * 72;
-    player.x = swingX;
-    player.y = swingY;
-}
-
-function launchFromBar() {
-    if (!player.hanging || !player.hangBar) return;
-
-    const bar = player.hangBar;
-    const pivotX = bar.x + bar.length / 2;
-    const pivotY = bar.y;
-    const dx = player.x - pivotX;
-    const dir = dx >= 0 ? 1 : -1;
-
-    releaseFromBar();
-    player.vx = dir * (7.5 + Math.abs(player.swingVel) * 20);
-    player.vy = -6.5 - Math.abs(player.swingVel) * 8;
-    player.rotation = 0;
-    player.combo += 1;
-    player.score += 20 + player.combo * 5;
-}
-
-function updatePlayer() {
-    if (player.hanging && player.hangBar) {
-        const bar = player.hangBar;
-        const pivotX = bar.x + bar.length / 2;
-        const pivotY = bar.y;
-
-        if (keys.left) player.swingVel -= 0.08;
-        if (keys.right) player.swingVel += 0.08;
-
-        player.swingVel *= 0.985;
-        player.swingVel = clamp(player.swingVel, -0.35, 0.35);
-        player.swingAngle += player.swingVel;
-
-        const arm = 72;
-        player.x = pivotX + Math.sin(player.swingAngle) * arm;
-        player.y = pivotY + Math.cos(player.swingAngle) * arm;
-
-        if (keys.jumpQueued) {
-            launchFromBar();
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #1a1a1a;
+            font-family: Arial, sans-serif;
         }
-    } else {
-        if (keys.left) player.vx -= 0.55;
-        if (keys.right) player.vx += 0.55;
 
-        if (!player.onGround) {
-            player.vy += world.gravity;
-            if (keys.up) player.rotation += 0.12;
-            if (keys.down) player.rotation -= 0.12;
-        } else {
-            player.vx *= 0.8;
-            if (keys.jumpQueued) {
-                player.vy = -12;
-                player.onGround = false;
-                player.rotation = 0;
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        #gameContainer {
+            position: relative;
+            width: min(100vw, 800px);
+            height: min(100vh, 600px);
+            background: linear-gradient(to bottom, #87CEEB 0%, #E0F6FF 100%);
+            border: 3px solid #333;
+            overflow: hidden;
+        }
+        
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: #333;
+            font-size: 16px;
+            font-weight: bold;
+            z-index: 10;
+        }
+        
+        #info {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            color: #333;
+            font-size: 12px;
+            z-index: 10;
+        }
+
+        #mobileControls {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 20;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 10px calc(12px + env(safe-area-inset-bottom));
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(2px);
+        }
+
+        .btn {
+            width: 56px;
+            height: 56px;
+            border: 2px solid #fff;
+            border-radius: 12px;
+            background: rgba(51, 51, 51, 0.9);
+            color: #fff;
+            font-size: 18px;
+            font-weight: bold;
+            line-height: 1;
+            user-select: none;
+            touch-action: manipulation;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .btn:active {
+            background: rgba(90, 90, 90, 0.95);
+            transform: scale(0.96);
+        }
+
+        .btn-wide {
+            width: 80px;
+        }
+
+        .btn-small {
+            width: 46px;
+            height: 46px;
+            font-size: 14px;
+        }
+
+        @media (min-width: 769px) {
+            #mobileControls {
+                display: none;
             }
         }
 
-        player.vx *= 0.98;
-        player.vx = clamp(player.vx, -7, 7);
-        player.x += player.vx;
-        player.y += player.vy;
+        @media (max-width: 480px) {
+            #gameContainer {
+                width: 100vw;
+                height: 100vh;
+            }
 
-        if (player.y + player.height >= world.groundY) {
-            player.y = world.groundY - player.height;
-            player.vy = 0;
-            player.onGround = true;
-            player.rotation = 0;
+            #ui {
+                font-size: 14px;
+            }
+
+            #info {
+                font-size: 10px;
+                max-width: 72%;
+            }
+
+            .btn {
+                width: 52px;
+                height: 52px;
+                font-size: 16px;
+            }
+
+            .btn-wide {
+                width: 72px;
+            }
         }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas"></canvas>
+        <div id="ui">
+            <div>Score: <span id="score">0</span></div>
+            <div>Combo: <span id="combo">0</span></div>
+        </div>
+        <div id="info">
+            <div>← → Mover | SPACE Saltar | E Agarrar | W/S Trucos</div>
+        </div>
 
-        if (keys.jumpQueued && !player.onGround) {
-            // no jump while falling
-        }
-    }
+        <div id="mobileControls">
+            <button id="btnLeft" class="btn btn-small" aria-label="Move left">←</button>
+            <button id="btnRight" class="btn btn-small" aria-label="Move right">→</button>
+            <button id="btnGrab" class="btn btn-wide" aria-label="Grab bar">GRAB</button>
+            <button id="btnJump" class="btn btn-wide" aria-label="Jump or launch">LAUNCH</button>
+            <button id="btnUp" class="btn btn-small" aria-label="Trick up">↑</button>
+            <button id="btnDown" class="btn btn-small" aria-label="Trick down">↓</button>
+        </div>
+    </div>
 
-    if (keys.grabQueued) {
-        attemptGrab();
-    }
-
-    keys.jumpQueued = false;
-    keys.grabQueued = false;
-}
-
-function drawGround() {
-    ctx.fillStyle = '#5d8d4a';
-    ctx.fillRect(0, world.groundY, canvas.width, canvas.height - world.groundY);
-
-    ctx.strokeStyle = '#3a5c2d';
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.moveTo(0, world.groundY);
-    ctx.lineTo(canvas.width, world.groundY);
-    ctx.stroke();
-}
-
-function drawBars() {
-    for (const bar of bars) {
-        const x = bar.x;
-        const y = bar.y;
-        const w = bar.length;
-        const h = 12;
-
-        ctx.fillStyle = '#5c3b29';
-        ctx.fillRect(x, y, w, h);
-
-        ctx.strokeStyle = '#9b704c';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(x, y, w, h);
-    }
-}
-
-function drawStickman() {
-    const px = player.x;
-    const py = player.y;
-
-    ctx.save();
-    ctx.translate(px, py);
-    ctx.rotate(player.rotation);
-
-    ctx.strokeStyle = '#111';
-    ctx.lineWidth = 3;
-
-    const shoulderY = 14;
-    const handY = 24;
-    const hipY = 34;
-
-    if (player.hanging) {
-        const bar = player.hangBar;
-        const pivotX = bar.x + bar.length / 2;
-        const pivotY = bar.y;
-        const barGripX = pivotX - player.x;
-        const barGripY = pivotY - player.y;
-
-        ctx.beginPath();
-        ctx.moveTo(0, shoulderY);
-        ctx.lineTo(barGripX * 0.5, barGripY * 0.5 + 10);
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.moveTo(0, shoulderY);
-        ctx.lineTo(-barGripX * 0.5, barGripY * 0.5 + 10);
-        ctx.stroke();
-    } else {
-        ctx.beginPath();
-        ctx.moveTo(0, shoulderY);
-        ctx.lineTo(-8, handY);
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.moveTo(0, shoulderY);
-        ctx.lineTo(8, handY);
-        ctx.stroke();
-    }
-
-    ctx.beginPath();
-    ctx.moveTo(0, shoulderY);
-    ctx.lineTo(0, hipY);
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.moveTo(0, hipY);
-    ctx.lineTo(-8, hipY + 20);
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.moveTo(0, hipY);
-    ctx.lineTo(8, hipY + 20);
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.arc(0, -6, 9, 0, Math.PI * 2);
-    ctx.stroke();
-
-    ctx.restore();
-}
-
-function drawUI() {
-    scoreEl.textContent = Math.floor(player.score);
-    comboEl.textContent = player.combo;
-}
-
-function render() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
-    sky.addColorStop(0, '#7fd4ff');
-    sky.addColorStop(1, '#dff7ff');
-    ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    drawBars();
-    drawGround();
-    drawStickman();
-    drawUI();
-}
-
-function update() {
-    updatePlayer();
-    render();
-    requestAnimationFrame(update);
-}
-
-resetPlayer();
-requestAnimationFrame(update);
-
-
-
+    <script src="game.js"></script>
+</body>
+</html>
