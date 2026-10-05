@@ -1,0 +1,351 @@
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+const comboEl = document.getElementById('combo');
+
+const world = {
+    width: 2400,
+    groundY: 520,
+    gravity: 0.38,
+};
+
+const keys = {
+    left: false,
+    right: false,
+    up: false,
+    down: false,
+    jumpQueued: false,
+    grabQueued: false,
+};
+
+const bars = [
+    { x: 260, y: 420, length: 150 },
+    { x: 520, y: 360, length: 130 },
+    { x: 760, y: 300, length: 140 },
+    { x: 1040, y: 430, length: 170 },
+    { x: 1360, y: 330, length: 150 },
+    { x: 1660, y: 270, length: 160 },
+    { x: 1960, y: 410, length: 155 },
+];
+
+const player = {
+    x: 90,
+    y: 470,
+    vx: 0,
+    vy: 0,
+    width: 16,
+    height: 54,
+    onGround: false,
+    hanging: false,
+    hangBar: null,
+    swingAngle: 0,
+    swingVel: 0,
+    rotation: 0,
+    combo: 0,
+    score: 0,
+};
+
+function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+}
+
+function setCanvasSize() {
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width = rect.width;
+    canvas.height = rect.height;
+}
+
+window.addEventListener('resize', setCanvasSize);
+setCanvasSize();
+
+window.addEventListener('keydown', (event) => {
+    const key = event.key.toLowerCase();
+
+    if (key === 'arrowleft' || key === 'a') keys.left = true;
+    if (key === 'arrowright' || key === 'd') keys.right = true;
+    if (key === 'w') keys.up = true;
+    if (key === 's') keys.down = true;
+
+    if (event.code === 'Space') {
+        event.preventDefault();
+        keys.jumpQueued = true;
+    }
+
+    if (key === 'e') {
+        keys.grabQueued = true;
+    }
+});
+
+window.addEventListener('keyup', (event) => {
+    const key = event.key.toLowerCase();
+
+    if (key === 'arrowleft' || key === 'a') keys.left = false;
+    if (key === 'arrowright' || key === 'd') keys.right = false;
+    if (key === 'w') keys.up = false;
+    if (key === 's') keys.down = false;
+});
+
+function resetPlayer() {
+    player.x = 90;
+    player.y = world.groundY - player.height;
+    player.vx = 0;
+    player.vy = 0;
+    player.onGround = true;
+    player.hanging = false;
+    player.hangBar = null;
+    player.rotation = 0;
+    player.swingVel = 0;
+    player.swingAngle = 0;
+}
+
+function releaseFromBar() {
+    player.hanging = false;
+    player.hangBar = null;
+    player.onGround = false;
+}
+
+function getClosestBar() {
+    let bestBar = null;
+    let bestDist = Infinity;
+
+    for (const bar of bars) {
+        const pivotX = bar.x + bar.length / 2;
+        const dx = player.x - pivotX;
+        const dy = player.y - bar.y;
+        const dist = Math.hypot(dx, dy);
+
+        if (dist < 110 && dist < bestDist) {
+            bestDist = dist;
+            bestBar = bar;
+        }
+    }
+
+    return bestBar;
+}
+
+function attemptGrab() {
+    if (player.hanging || player.onGround) return;
+
+    const bar = getClosestBar();
+    if (!bar) return;
+
+    const pivotX = bar.x + bar.length / 2;
+    const pivotY = bar.y;
+
+    player.hanging = true;
+    player.hangBar = bar;
+    player.vx = 0;
+    player.vy = 0;
+    player.swingAngle = Math.atan2(player.x - pivotX, 68);
+    player.swingVel = 0;
+    player.rotation = player.swingAngle;
+
+    const swingX = pivotX + Math.sin(player.swingAngle) * 72;
+    const swingY = pivotY + Math.cos(player.swingAngle) * 72;
+    player.x = swingX;
+    player.y = swingY;
+}
+
+function launchFromBar() {
+    if (!player.hanging || !player.hangBar) return;
+
+    const bar = player.hangBar;
+    const pivotX = bar.x + bar.length / 2;
+    const pivotY = bar.y;
+    const dx = player.x - pivotX;
+    const dir = dx >= 0 ? 1 : -1;
+
+    releaseFromBar();
+    player.vx = dir * (7.5 + Math.abs(player.swingVel) * 20);
+    player.vy = -6.5 - Math.abs(player.swingVel) * 8;
+    player.rotation = 0;
+    player.combo += 1;
+    player.score += 20 + player.combo * 5;
+}
+
+function updatePlayer() {
+    if (player.hanging && player.hangBar) {
+        const bar = player.hangBar;
+        const pivotX = bar.x + bar.length / 2;
+        const pivotY = bar.y;
+
+        if (keys.left) player.swingVel -= 0.08;
+        if (keys.right) player.swingVel += 0.08;
+
+        player.swingVel *= 0.985;
+        player.swingVel = clamp(player.swingVel, -0.35, 0.35);
+        player.swingAngle += player.swingVel;
+
+        const arm = 72;
+        player.x = pivotX + Math.sin(player.swingAngle) * arm;
+        player.y = pivotY + Math.cos(player.swingAngle) * arm;
+
+        if (keys.jumpQueued) {
+            launchFromBar();
+        }
+    } else {
+        if (keys.left) player.vx -= 0.55;
+        if (keys.right) player.vx += 0.55;
+
+        if (!player.onGround) {
+            player.vy += world.gravity;
+            if (keys.up) player.rotation += 0.12;
+            if (keys.down) player.rotation -= 0.12;
+        } else {
+            player.vx *= 0.8;
+            if (keys.jumpQueued) {
+                player.vy = -12;
+                player.onGround = false;
+                player.rotation = 0;
+            }
+        }
+
+        player.vx *= 0.98;
+        player.vx = clamp(player.vx, -7, 7);
+        player.x += player.vx;
+        player.y += player.vy;
+
+        if (player.y + player.height >= world.groundY) {
+            player.y = world.groundY - player.height;
+            player.vy = 0;
+            player.onGround = true;
+            player.rotation = 0;
+        }
+
+        if (keys.jumpQueued && !player.onGround) {
+            // no jump while falling
+        }
+    }
+
+    if (keys.grabQueued) {
+        attemptGrab();
+    }
+
+    keys.jumpQueued = false;
+    keys.grabQueued = false;
+}
+
+function drawGround() {
+    ctx.fillStyle = '#5d8d4a';
+    ctx.fillRect(0, world.groundY, canvas.width, canvas.height - world.groundY);
+
+    ctx.strokeStyle = '#3a5c2d';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(0, world.groundY);
+    ctx.lineTo(canvas.width, world.groundY);
+    ctx.stroke();
+}
+
+function drawBars() {
+    for (const bar of bars) {
+        const x = bar.x;
+        const y = bar.y;
+        const w = bar.length;
+        const h = 12;
+
+        ctx.fillStyle = '#5c3b29';
+        ctx.fillRect(x, y, w, h);
+
+        ctx.strokeStyle = '#9b704c';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x, y, w, h);
+    }
+}
+
+function drawStickman() {
+    const px = player.x;
+    const py = player.y;
+
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.rotate(player.rotation);
+
+    ctx.strokeStyle = '#111';
+    ctx.lineWidth = 3;
+
+    const shoulderY = 14;
+    const handY = 24;
+    const hipY = 34;
+
+    if (player.hanging) {
+        const bar = player.hangBar;
+        const pivotX = bar.x + bar.length / 2;
+        const pivotY = bar.y;
+        const barGripX = pivotX - player.x;
+        const barGripY = pivotY - player.y;
+
+        ctx.beginPath();
+        ctx.moveTo(0, shoulderY);
+        ctx.lineTo(barGripX * 0.5, barGripY * 0.5 + 10);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(0, shoulderY);
+        ctx.lineTo(-barGripX * 0.5, barGripY * 0.5 + 10);
+        ctx.stroke();
+    } else {
+        ctx.beginPath();
+        ctx.moveTo(0, shoulderY);
+        ctx.lineTo(-8, handY);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(0, shoulderY);
+        ctx.lineTo(8, handY);
+        ctx.stroke();
+    }
+
+    ctx.beginPath();
+    ctx.moveTo(0, shoulderY);
+    ctx.lineTo(0, hipY);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(0, hipY);
+    ctx.lineTo(-8, hipY + 20);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(0, hipY);
+    ctx.lineTo(8, hipY + 20);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(0, -6, 9, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.restore();
+}
+
+function drawUI() {
+    scoreEl.textContent = Math.floor(player.score);
+    comboEl.textContent = player.combo;
+}
+
+function render() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    sky.addColorStop(0, '#7fd4ff');
+    sky.addColorStop(1, '#dff7ff');
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    drawBars();
+    drawGround();
+    drawStickman();
+    drawUI();
+}
+
+function update() {
+    updatePlayer();
+    render();
+    requestAnimationFrame(update);
+}
+
+resetPlayer();
+requestAnimationFrame(update);
+
+
+
