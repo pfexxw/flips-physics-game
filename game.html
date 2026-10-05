@@ -1,227 +1,376 @@
-<!DOCTYPE html>
+!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Flips Game</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        html, body { width: 100%; height: 100%; overflow: hidden; }
-        body { background: #1a1a1a; display: flex; justify-content: center; align-items: center; }
-        #gameContainer { position: relative; width: 100vw; height: 100vh; max-width: 800px; max-height: 600px; background: linear-gradient(to bottom, #87CEEB, #E0F6FF); border: 2px solid #333; }
-        canvas { display: block; width: 100%; height: 100%; }
-        #ui { position: absolute; top: 10px; left: 10px; color: #333; font-weight: bold; z-index: 10; }
-        #mobileControls { position: absolute; bottom: 0; left: 0; right: 0; display: flex; justify-content: space-around; padding: 10px; background: rgba(0,0,0,0.6); gap: 5px; }
-        .btn { width: 50px; height: 50px; border: 2px solid #fff; border-radius: 8px; background: #333; color: #fff; font-weight: bold; cursor: pointer; touch-action: none; }
-        .btn:active { background: #555; transform: scale(0.95); }
-        .btn-wide { width: 70px; }
-        @media (max-width: 480px) { .btn { width: 45px; height: 45px; } .btn-wide { width: 60px; } }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Flips Game</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #111;
+      font-family: Arial, sans-serif;
+    }
+    body {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    #gameContainer {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      max-width: 900px;
+      max-height: 700px;
+      background: linear-gradient(to bottom, #8fd5ff, #eaf9ff);
+      border: 3px solid #222;
+      overflow: hidden;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+    #ui {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 10;
+      color: #1b1b1b;
+      font-weight: bold;
+      font-size: 18px;
+    }
+    #mobileControls {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 20;
+      display: flex;
+      justify-content: space-around;
+      align-items: center;
+      padding: 10px;
+      background: rgba(0,0,0,0.45);
+      gap: 8px;
+    }
+    .btn {
+      width: 52px;
+      height: 52px;
+      border: 2px solid white;
+      border-radius: 12px;
+      background: rgba(40,40,40,0.9);
+      color: white;
+      font-size: 18px;
+      font-weight: bold;
+      touch-action: none;
+      user-select: none;
+    }
+    .btn:active { transform: scale(0.96); background: rgba(70,70,70,0.95); }
+    .btn-wide { width: 72px; }
+  </style>
 </head>
 <body>
-    <div id="gameContainer">
-        <canvas id="gameCanvas"></canvas>
-        <div id="ui">
-            <div>Score: <span id="score">0</span></div>
-            <div>Combo: <span id="combo">0</span></div>
-        </div>
-        <div id="mobileControls">
-            <button class="btn" id="btnLeft">←</button>
-            <button class="btn" id="btnRight">→</button>
-            <button class="btn btn-wide" id="btnGrab">GRAB</button>
-            <button class="btn btn-wide" id="btnJump">GO</button>
-            <button class="btn" id="btnUp">↑</button>
-            <button class="btn" id="btnDown">↓</button>
-        </div>
+  <div id="gameContainer">
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="ui">
+      <div>Score: <span id="score">0</span></div>
+      <div>Combo: <span id="combo">0</span></div>
     </div>
 
-    <script>
-        const canvas = document.getElementById('gameCanvas');
-        const ctx = canvas.getContext('2d');
-        canvas.width = canvas.parentElement.clientWidth;
-        canvas.height = canvas.parentElement.clientHeight;
+    <div id="mobileControls">
+      <button class="btn" id="btnLeft">←</button>
+      <button class="btn" id="btnRight">→</button>
+      <button class="btn btn-wide" id="btnGrab">GRAB</button>
+      <button class="btn btn-wide" id="btnJump">JUMP</button>
+      <button class="btn" id="btnUp">↑</button>
+      <button class="btn" id="btnDown">↓</button>
+    </div>
+  </div>
 
-        const keys = { left: false, right: false, up: false, down: false, jumpQueued: false, grabQueued: false };
-        const bars = [
-            { x: 120, y: 280, length: 120 },
-            { x: 280, y: 240, length: 110 },
-            { x: 420, y: 200, length: 115 },
-            { x: 550, y: 280, length: 125 }
-        ];
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
 
-        const player = {
-            x: 40, y: canvas.height - 100, vx: 0, vy: 0,
-            onGround: false, hanging: false, hangBar: null,
-            swingAngle: 0, swingVel: 0, rotation: 0,
-            combo: 0, score: 0
-        };
+    const scoreEl = document.getElementById('score');
+    const comboEl = document.getElementById('combo');
 
-        function clamp(v, min, max) { return Math.min(max, Math.max(min, v)); }
-        function setButtonControl(btn, key) {
-            btn.addEventListener('touchstart', (e) => { e.preventDefault(); keys[key] = true; });
-            btn.addEventListener('touchend', (e) => { e.preventDefault(); keys[key] = false; });
-            btn.addEventListener('mousedown', () => keys[key] = true);
-            btn.addEventListener('mouseup', () => keys[key] = false);
+    function resizeCanvas() {
+      canvas.width = canvas.parentElement.clientWidth;
+      canvas.height = canvas.parentElement.clientHeight;
+    }
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+
+    const keys = {
+      left: false,
+      right: false,
+      up: false,
+      down: false,
+      jumpQueued: false,
+      grabQueued: false
+    };
+
+    const bars = [
+      { z: 0.2, y: 220, size: 18 },
+      { z: 0.4, y: 190, size: 24 },
+      { z: 0.6, y: 170, size: 26 },
+      { z: 0.8, y: 210, size: 30 },
+      { z: 1.0, y: 180, size: 34 }
+    ];
+
+    const player = {
+      x: canvas.width / 2,
+      y: canvas.height - 90,
+      vx: 0,
+      vy: 0,
+      z: 0,
+      hanging: false,
+      hangBar: null,
+      swingAngle: 0,
+      swingVel: 0,
+      rotation: 0,
+      combo: 0,
+      score: 0,
+      onGround: true
+    };
+
+    function clamp(v, min, max) {
+      return Math.min(max, Math.max(min, v));
+    }
+
+    function bindButton(button, key, mode = 'hold') {
+      button.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        if (mode === 'hold') keys[key] = true;
+        else keys[key] = true;
+      }, { passive: false });
+      button.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        if (mode === 'hold') keys[key] = false;
+      }, { passive: false });
+      button.addEventListener('touchcancel', (e) => {
+        e.preventDefault();
+        if (mode === 'hold') keys[key] = false;
+      }, { passive: false });
+    }
+
+    document.getElementById('btnLeft').addEventListener('touchstart', (e) => { e.preventDefault(); keys.left = true; }, { passive: false });
+    document.getElementById('btnLeft').addEventListener('touchend', (e) => { e.preventDefault(); keys.left = false; }, { passive: false });
+
+    document.getElementById('btnRight').addEventListener('touchstart', (e) => { e.preventDefault(); keys.right = true; }, { passive: false });
+    document.getElementById('btnRight').addEventListener('touchend', (e) => { e.preventDefault(); keys.right = false; }, { passive: false });
+
+    document.getElementById('btnUp').addEventListener('touchstart', (e) => { e.preventDefault(); keys.up = true; }, { passive: false });
+    document.getElementById('btnUp').addEventListener('touchend', (e) => { e.preventDefault(); keys.up = false; }, { passive: false });
+
+    document.getElementById('btnDown').addEventListener('touchstart', (e) => { e.preventDefault(); keys.down = true; }, { passive: false });
+    document.getElementById('btnDown').addEventListener('touchend', (e) => { e.preventDefault(); keys.down = false; }, { passive: false });
+
+    document.getElementById('btnJump').addEventListener('touchstart', (e) => { e.preventDefault(); keys.jumpQueued = true; }, { passive: false });
+    document.getElementById('btnGrab').addEventListener('touchstart', (e) => { e.preventDefault(); keys.grabQueued = true; }, { passive: false });
+
+    function getClosestBar() {
+      let bestBar = null;
+      let bestDist = Infinity;
+
+      for (const bar of bars) {
+        const screenX = canvas.width / 2 + (bar.z - 0.5) * 120;
+        const dist = Math.hypot(player.x - screenX, player.y - bar.y);
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestBar = bar;
+        }
+      }
+
+      return bestBar;
+    }
+
+    function attemptGrab() {
+      if (player.hanging || !player.onGround) return;
+
+      const bar = getClosestBar();
+      if (!bar) return;
+
+      player.hanging = true;
+      player.hangBar = bar;
+      player.onGround = false;
+      player.vx = 0;
+      player.vy = 0;
+      player.swingVel = 0;
+      player.swingAngle = 0;
+    }
+
+    function launchFromBar() {
+      if (!player.hanging || !player.hangBar) return;
+
+      const bar = player.hangBar;
+      const center = canvas.width / 2 + (bar.z - 0.5) * 120;
+      const dir = player.x >= center ? 1 : -1;
+
+      player.hanging = false;
+      player.hangBar = null;
+      player.onGround = false;
+      player.vx = dir * (7 + Math.abs(player.swingVel) * 16);
+      player.vy = -11;
+      player.combo += 1;
+      player.score += 20 + player.combo * 5;
+    }
+
+    function update() {
+      if (player.hanging && player.hangBar) {
+        const bar = player.hangBar;
+        const center = canvas.width / 2 + (bar.z - 0.5) * 120;
+
+        if (keys.left) player.swingVel -= 0.07;
+        if (keys.right) player.swingVel += 0.07;
+
+        player.swingVel *= 0.98;
+        player.swingVel = clamp(player.swingVel, -0.38, 0.38);
+
+        player.swingAngle += player.swingVel;
+
+        player.x = center + Math.sin(player.swingAngle) * 60;
+        player.y = bar.y + Math.cos(player.swingAngle) * 60;
+
+        if (keys.jumpQueued) {
+          launchFromBar();
+        }
+      } else {
+        if (keys.left) player.vx -= 0.45;
+        if (keys.right) player.vx += 0.45;
+
+        if (!player.onGround) {
+          player.vy += 0.4;
+          if (keys.up) player.rotation += 0.12;
+          if (keys.down) player.rotation -= 0.12;
+        } else {
+          if (keys.jumpQueued) {
+            player.vy = -12;
+            player.onGround = false;
+            player.rotation = 0;
+          }
         }
 
-        setButtonControl(document.getElementById('btnLeft'), 'left');
-        setButtonControl(document.getElementById('btnRight'), 'right');
-        setButtonControl(document.getElementById('btnUp'), 'up');
-        setButtonControl(document.getElementById('btnDown'), 'down');
-        document.getElementById('btnGrab').addEventListener('touchstart', (e) => { e.preventDefault(); keys.grabQueued = true; });
-        document.getElementById('btnJump').addEventListener('touchstart', (e) => { e.preventDefault(); keys.jumpQueued = true; });
+        player.vx *= 0.95;
+        player.x += player.vx;
+        player.y += player.vy;
 
-        window.addEventListener('keydown', (e) => {
-            if (e.key === 'ArrowLeft') keys.left = true;
-            if (e.key === 'ArrowRight') keys.right = true;
-            if (e.key === ' ') { e.preventDefault(); keys.jumpQueued = true; }
-            if (e.key === 'e') keys.grabQueued = true;
-        });
-        window.addEventListener('keyup', (e) => {
-            if (e.key === 'ArrowLeft') keys.left = false;
-            if (e.key === 'ArrowRight') keys.right = false;
-        });
-
-        function getClosestBar() {
-            let best = null, bestDist = 100;
-            for (const bar of bars) {
-                const px = bar.x + bar.length / 2;
-                const dist = Math.hypot(player.x - px, player.y - bar.y);
-                if (dist < bestDist) { bestDist = dist; best = bar; }
-            }
-            return best;
+        if (player.y >= canvas.height - 80) {
+          player.y = canvas.height - 80;
+          player.vy = 0;
+          player.onGround = true;
+          player.rotation = 0;
         }
+      }
 
-        function attemptGrab() {
-            if (player.hanging || player.onGround) return;
-            const bar = getClosestBar();
-            if (!bar) return;
-            player.hanging = true;
-            player.hangBar = bar;
-            player.vx = 0;
-            player.vy = 0;
-            player.swingVel = 0;
-        }
+      if (keys.grabQueued) {
+        attemptGrab();
+      }
 
-        function launch() {
-            if (!player.hanging) return;
-            const bar = player.hangBar;
-            const dir = player.x > (bar.x + bar.length / 2) ? 1 : -1;
-            player.hanging = false;
-            player.hangBar = null;
-            player.vx = dir * (6 + Math.abs(player.swingVel) * 15);
-            player.vy = -8;
-            player.combo++;
-            player.score += 20 + player.combo * 5;
-        }
+      keys.jumpQueued = false;
+      keys.grabQueued = false;
+    }
 
-        function update() {
-            if (player.hanging && player.hangBar) {
-                const bar = player.hangBar;
-                const px = bar.x + bar.length / 2;
-                if (keys.left) player.swingVel -= 0.06;
-                if (keys.right) player.swingVel += 0.06;
-                player.swingVel *= 0.98;
-                player.swingVel = clamp(player.swingVel, -0.3, 0.3);
-                player.swingAngle += player.swingVel;
-                player.x = px + Math.sin(player.swingAngle) * 60;
-                player.y = bar.y + Math.cos(player.swingAngle) * 60;
-                if (keys.jumpQueued) launch();
-            } else {
-                if (keys.left) player.vx -= 0.4;
-                if (keys.right) player.vx += 0.4;
-                if (!player.onGround) {
-                    player.vy += 0.3;
-                    if (keys.up) player.rotation += 0.1;
-                    if (keys.down) player.rotation -= 0.1;
-                }
-                player.vx *= 0.95;
-                player.x += player.vx;
-                player.y += player.vy;
-                if (player.y > canvas.height - 50) {
-                    player.y = canvas.height - 50;
-                    player.vy = 0;
-                    player.onGround = true;
-                    player.rotation = 0;
-                }
-            }
-            if (keys.grabQueued) attemptGrab();
-            keys.jumpQueued = false;
-            keys.grabQueued = false;
-        }
+    function drawBackground() {
+      const g = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      g.addColorStop(0, '#7fc9ff');
+      g.addColorStop(1, '#edf8ff');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
 
-        function draw() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            
-            // Sky
-            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-            gradient.addColorStop(0, '#7fd4ff');
-            gradient.addColorStop(1, '#dff7ff');
-            ctx.fillStyle = gradient;
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
+    function drawBars() {
+      const sorted = [...bars].sort((a, b) => a.z - b.z);
 
-            // Bars
-            ctx.fillStyle = '#5c3b29';
-            for (const bar of bars) {
-                ctx.fillRect(bar.x, bar.y, bar.length, 10);
-            }
+      for (const bar of sorted) {
+        const x = canvas.width / 2 + (bar.z - 0.5) * 120;
+        const size = bar.size * (0.7 + bar.z * 0.8);
+        const alpha = 0.35 + bar.z * 0.7;
 
-            // Ground
-            ctx.fillStyle = '#5d8d4a';
-            ctx.fillRect(0, canvas.height - 40, canvas.width, 40);
+        ctx.fillStyle = `rgba(100, 70, 50, ${alpha})`;
+        ctx.beginPath();
+        ctx.arc(x, bar.y, size / 2, 0, Math.PI * 2);
+        ctx.fill();
 
-            // Stickman
-            ctx.save();
-            ctx.translate(player.x, player.y);
-            ctx.rotate(player.rotation);
-            ctx.strokeStyle = '#111';
-            ctx.lineWidth = 2;
-            
-            // Head
-            ctx.beginPath();
-            ctx.arc(0, -10, 6, 0, Math.PI * 2);
-            ctx.stroke();
-            
-            // Body
-            ctx.beginPath();
-            ctx.moveTo(0, -3);
-            ctx.lineTo(0, 10);
-            ctx.stroke();
-            
-            // Arms
-            ctx.beginPath();
-            ctx.moveTo(0, 0);
-            ctx.lineTo(-7, 5);
-            ctx.stroke();
-            ctx.beginPath();
-            ctx.moveTo(0, 0);
-            ctx.lineTo(7, 5);
-            ctx.stroke();
-            
-            // Legs
-            ctx.beginPath();
-            ctx.moveTo(0, 10);
-            ctx.lineTo(-5, 20);
-            ctx.stroke();
-            ctx.beginPath();
-            ctx.moveTo(0, 10);
-            ctx.lineTo(5, 20);
-            ctx.stroke();
-            
-            ctx.restore();
+        ctx.strokeStyle = `rgba(160, 120, 85, ${alpha})`;
+        ctx.beginPath();
+        ctx.arc(x, bar.y, size / 2, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
 
-            // UI
-            document.getElementById('score').textContent = Math.floor(player.score);
-            document.getElementById('combo').textContent = player.combo;
-        }
+    function drawGround() {
+      ctx.fillStyle = '#5d8d4a';
+      ctx.fillRect(0, canvas.height - 32, canvas.width, 32);
+    }
 
-        function gameLoop() {
-            update();
-            draw();
-            requestAnimationFrame(gameLoop);
-        }
+    function drawStickman() {
+      ctx.save();
+      ctx.translate(player.x, player.y);
+      ctx.rotate(player.rotation);
 
-        gameLoop();
-    </script>
+      const scale = 2.5;
+      ctx.scale(scale, scale);
+
+      ctx.strokeStyle = '#111';
+      ctx.lineWidth = 1.8;
+
+      // cabeza
+      ctx.beginPath();
+      ctx.arc(0, -15, 10, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // cuerpo
+      ctx.beginPath();
+      ctx.moveTo(0, -5);
+      ctx.lineTo(0, 18);
+      ctx.stroke();
+
+      // brazos
+      ctx.beginPath();
+      ctx.moveTo(0, 2);
+      ctx.lineTo(-12, 8);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(0, 2);
+      ctx.lineTo(12, 8);
+      ctx.stroke();
+
+      // piernas
+      ctx.beginPath();
+      ctx.moveTo(0, 18);
+      ctx.lineTo(-9, 34);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(0, 18);
+      ctx.lineTo(9, 34);
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
+    function draw() {
+      drawBackground();
+      drawBars();
+      drawGround();
+      drawStickman();
+      scoreEl.textContent = Math.floor(player.score);
+      comboEl.textContent = player.combo;
+    }
+
+    function loop() {
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    loop();
+  </script>
 </body>
 </html>
